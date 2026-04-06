@@ -1,6 +1,6 @@
 -- // About //
 -- Made By: JackaBoi
--- Last Updated: 11/19/2025
+-- Last Updated: 4/6/2026
 
 -- // Services //
 
@@ -22,13 +22,13 @@ local function playerRemove(player: Player)
 	for sectionName,section in PlayerConnections[player].Character do
 		for _,connection in section do
 			local success = pcall(function() connection:Disconnect() end)
-			if not success then warn("Multiple Disconnects Called Possible Issue!") end
+			if not success then warn("Failed To Disconnect a Connection!") end
 		end
 	end
 	for sectionName,section in PlayerConnections[player].Player do
 		for _,connection in section do
 			local success = pcall(function() connection:Disconnect() end)
-			if not success then warn("Multiple Disconnects Called Possible Issue!") end
+			if not success then warn("Failed To Disconnect a Connection!") end
 		end
 	end
 
