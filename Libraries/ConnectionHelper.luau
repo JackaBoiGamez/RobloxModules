@@ -1,6 +1,6 @@
 -- // About //
 -- Made By: JackaBoi
--- Last Updated: 4/6/2026
+-- Last Updated: 10/5/2026
 
 -- // Services //
 
@@ -18,6 +18,8 @@ local initializedRemove = false
 -- // Functions //
 
 local function playerRemove(player: Player)
+
+	if not PlayerConnections[player] then return end -- player never had connections registered
 
 	for sectionName,section in PlayerConnections[player].Character do
 		for _,connection in section do
