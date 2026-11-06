@@ -1,8 +1,10 @@
---!strict
-
 -- // About //
 -- Made By: JackaBoi
--- Last Updated: 10/14/2026
+-- Last Updated: 11/06/2026
+-- Works from both Scripts (server) and LocalScripts (client). Each side keeps its own records.
+-- On the client the Player argument can be left out of any method and defaults to the LocalPlayer:
+--   ConnectionHelper:AddCharacterConnections("Combat", connection)
+--   ConnectionHelper:AddCharacterConnections(player, "Combat", connection)
 
 -- // Types //
 
@@ -20,10 +22,12 @@ export type PlayerRecord = {
 -- // Services //
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
 -- // Config //
 
-local LOG_PREFIX = "[ConnectionHelper] >>"
+local IS_CLIENT = RunService:IsClient()
+local LOG_PREFIX = if IS_CLIENT then "[ConnectionHelper:Client] >>" else "[ConnectionHelper:Server] >>"
 
 -- // Local //
 
@@ -32,7 +36,32 @@ local initialized = false
 
 -- // Functions //
 
+local function isPlayer(value: any): boolean
+	return typeof(value) == "Instance" and value:IsA("Player")
+end
+
+-- Lets client calls omit the player (or pass nil) and fall back to the LocalPlayer.
+-- The server has no LocalPlayer, so it must always be told which player it's working with.
+local function resolve(first: any, ...: any): (Player, ...any)
+
+	if isPlayer(first) then
+		return first, ...
+	end
+
+	if not IS_CLIENT then
+		error(`{LOG_PREFIX} A Player must be passed as the first argument on the server (got {typeof(first)})`, 3)
+	end
+
+	if first == nil then
+		return Players.LocalPlayer, ...
+	end
+
+	return Players.LocalPlayer, first, ...
+
+end
+
 local function cleanItem(item: Cleanup)
+
 	if type(item) == "function" then
 		-- Spawned so a cleanup that yields can't stall the rest of the cleanup pass
 		task.spawn(function()
@@ -54,6 +83,7 @@ local function cleanItem(item: Cleanup)
 	if not success then
 		warn(LOG_PREFIX, "Cleanup failed:", err)
 	end
+
 end
 
 -- Lists and sections are always detached from the record BEFORE being cleaned, so cleanup code
@@ -97,6 +127,7 @@ local function getSections(record: PlayerRecord, scope: Scope): Sections
 end
 
 local function removePlayer(player: Player)
+
 	local record = PlayerRecords[player]
 	if not record then return end
 
@@ -106,6 +137,7 @@ local function removePlayer(player: Player)
 	end
 	cleanSections(record.Character)
 	cleanSections(record.Player)
+
 end
 
 local function init()
@@ -116,6 +148,7 @@ local function init()
 end
 
 local function getRecord(player: Player, create: boolean): PlayerRecord?
+
 	local record = PlayerRecords[player]
 	if record or not create then
 		return record
@@ -150,9 +183,11 @@ local function getRecord(player: Player, create: boolean): PlayerRecord?
 	end))
 
 	return newRecord
+
 end
 
 local function addTo(player: Player, scope: Scope, section: string, items: Cleanup | {Cleanup})
+
 	local list = normalize(items)
 	local record = getRecord(player, true)
 
@@ -180,9 +215,11 @@ local function addTo(player: Player, scope: Scope, section: string, items: Clean
 			warn(LOG_PREFIX, `Ignored invalid item of type {typeof(item)} in {scope} section "{section}"`)
 		end
 	end
+
 end
 
 local function removeFrom(player: Player, scope: Scope, section: string): boolean
+
 	local record = getRecord(player, false)
 	if not record then return false end
 
@@ -196,6 +233,7 @@ local function removeFrom(player: Player, scope: Scope, section: string): boolea
 	sections[section] = nil
 	cleanList(list)
 	return true
+
 end
 
 local function countSections(sections: Sections): {[string]: number}
@@ -210,48 +248,61 @@ end
 
 local ConnectionHelper = {}
 
+ConnectionHelper.IsClient = IS_CLIENT
+
 -- Call once at startup for the earliest cleanup on leave. Not required for correctness:
 -- the first Add initializes automatically and each record also watches its own player.
 function ConnectionHelper:Init()
 	init()
 end
 
-function ConnectionHelper:AddPlayerConnections(player: Player, section: string, items: Cleanup | {Cleanup})
+-- (player, section, items) on either side, or (section, items) on the client
+function ConnectionHelper:AddPlayerConnections(target: Player | string, ...: any)
+	local player, section, items = resolve(target, ...)
 	addTo(player, "Player", section, items)
 end
 
-function ConnectionHelper:RemovePlayerConnections(player: Player, section: string): boolean
+-- (player, section) on either side, or (section) on the client
+function ConnectionHelper:RemovePlayerConnections(target: Player | string, ...: any): boolean
+	local player, section = resolve(target, ...)
 	return removeFrom(player, "Player", section)
 end
 
-function ConnectionHelper:AddCharacterConnections(player: Player, section: string, items: Cleanup | {Cleanup})
+-- (player, section, items) on either side, or (section, items) on the client
+function ConnectionHelper:AddCharacterConnections(target: Player | string, ...: any)
+	local player, section, items = resolve(target, ...)
 	addTo(player, "Character", section, items)
 end
 
-function ConnectionHelper:RemoveCharacterConnections(player: Player, section: string): boolean
+-- (player, section) on either side, or (section) on the client
+function ConnectionHelper:RemoveCharacterConnections(target: Player | string, ...: any): boolean
+	local player, section = resolve(target, ...)
 	return removeFrom(player, "Character", section)
 end
 
-function ConnectionHelper:HasSection(player: Player, scope: Scope, section: string): boolean
+-- (player, scope, section) on either side, or (scope, section) on the client
+function ConnectionHelper:HasSection(target: Player | Scope, ...: any): boolean
+	local player, scope, section = resolve(target, ...)
 	local record = getRecord(player, false)
 	return record ~= nil and getSections(record, scope)[section] ~= nil
 end
 
-function ConnectionHelper:ClearCharacter(player: Player)
-	local record = getRecord(player, false)
-	if record then
-		resetCharacter(record)
-	end
+function ConnectionHelper:ClearCharacter(player: Player?)
+	local resolved = resolve(player)
+	local record = getRecord(resolved, false)
+	if not record then return end
+
+	resetCharacter(record)
 end
 
-function ConnectionHelper:ClearPlayer(player: Player)
-	removePlayer(player)
+function ConnectionHelper:ClearPlayer(player: Player?)
+	removePlayer(resolve(player))
 end
 
 -- Returns the live record; treat it as read-only and don't hold onto it,
 -- since its Character table is replaced every time the character is cleaned
-function ConnectionHelper:GetPlayerConnections(player: Player): PlayerRecord?
-	return PlayerRecords[player]
+function ConnectionHelper:GetPlayerConnections(player: Player?): PlayerRecord?
+	return PlayerRecords[resolve(player)]
 end
 
 function ConnectionHelper:Debug()
